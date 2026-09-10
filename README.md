@@ -1,1 +1,0 @@
-# atlas-internship-tracker
