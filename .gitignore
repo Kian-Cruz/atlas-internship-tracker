@@ -1,0 +1,8 @@
+# Also protect credentials created at the repository root.
+.env*
+!.env.example
+!.env.atlas.example
+node_modules/
+.next/
+.vercel/
+*.tsbuildinfo

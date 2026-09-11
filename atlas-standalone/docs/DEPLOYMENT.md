@@ -2,6 +2,8 @@
 
 This project is standard Next.js. Your GitHub repository owns the code, Supabase owns your user accounts and data, and Vercel hosts the app. A paid custom domain is optional. For the already provisioned Atlas project, start with [PROJECT_SETUP.md](PROJECT_SETUP.md); its applied migrations must not be run manually a second time.
 
+The `Kian-Cruz/atlas-internship-tracker` repository already contains the app in `atlas-standalone/`. Its Supabase migrations are already applied. Run npm commands from that application directory; skip account creation and the initial upload steps below when using the existing setup.
+
 ## 1. Create a dedicated Supabase project
 
 1. Open https://supabase.com/dashboard and create a project in your own organization.
@@ -78,7 +80,7 @@ The `.gitignore` excludes `.env.local`, build output and dependencies. Check `gi
 ## 5. Deploy to Vercel
 
 1. Open https://vercel.com/new and import your repository.
-2. Use the **Next.js** framework preset, repository root directory, and Node.js **22.x or 24.x**.
+2. Use the **Next.js** framework preset and Node.js **22.x or 24.x**. For `Kian-Cruz/atlas-internship-tracker`, set **Root Directory** to `atlas-standalone`. If adapting this project to another repository, select the directory containing `package.json`.
 3. Add these environment variables for the production environment:
 
 | Variable | Value |

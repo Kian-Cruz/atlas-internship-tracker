@@ -15,7 +15,9 @@ A standalone student internship tracker built with **Next.js 16, React 19, TypeS
 
 ## Start here
 
-For your already created Supabase project, use [docs/PROJECT_SETUP.md](docs/PROJECT_SETUP.md) and the supplied `.env.atlas.example`. Database setup and access checks are complete; GitHub upload, private runtime credentials, production email and hosting remain pending.
+For your already created Supabase project, use [docs/PROJECT_SETUP.md](docs/PROJECT_SETUP.md) and the supplied `.env.atlas.example`. The source is uploaded and database access checks are complete. Vercel accepted a preview deployment; private runtime credentials, production email and hosted verification remain pending.
+
+In this repository, the application is inside `atlas-standalone/`. Open a terminal in that directory for the commands below. Vercel's Root Directory must also be `atlas-standalone`.
 
 Use **Node.js 22.13+ or 24** and npm. You do not need Docker for the supplied tests.
 
@@ -65,7 +67,7 @@ Tests use an embedded PostgreSQL engine (PGlite), real SDKs with local provider 
 | `supabase/migrations/` | Application schema, security policies and private bucket |
 | `scripts/` | Environment validation and checksum-tracked migrations |
 | `tests/` | Authentication, database and storage tests |
-| `.github/workflows/ci.yml` | Automated validation on pushes and pull requests |
+| `../.github/workflows/ci.yml` | Repository-level validation on pushes and pull requests |
 
 ## Operational limits
 
