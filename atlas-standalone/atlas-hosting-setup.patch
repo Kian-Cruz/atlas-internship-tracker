@@ -1,0 +1,181 @@
+diff --git a/atlas-standalone/.github/workflows/ci.yml b/.github/workflows/ci.yml
+similarity index 74%
+rename from atlas-standalone/.github/workflows/ci.yml
+rename to .github/workflows/ci.yml
+index c6ba55ab18432fa49a712dd03eae66cca31c067f..43591dfbd7ade8591c6be0a09171b58c26f1617b 100644
+--- a/atlas-standalone/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -2,18 +2,23 @@ name: Atlas checks
+ on:
+   push:
+   pull_request:
++  workflow_dispatch:
+ permissions:
+   contents: read
+ jobs:
+   validate:
+     runs-on: ubuntu-latest
+     timeout-minutes: 15
++    defaults:
++      run:
++        working-directory: atlas-standalone
+     steps:
+       - uses: actions/checkout@v4
+       - uses: actions/setup-node@v4
+         with:
+           node-version: '22'
+           cache: npm
++          cache-dependency-path: atlas-standalone/package-lock.json
+       - run: npm ci
+       - run: npm run lint
+       - run: npm run typecheck
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000000000000000000000000000000000000..f79b9cfb7759193ea47de96ba96a3b23ee56adef
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,8 @@
++# Also protect credentials created at the repository root.
++.env*
++!.env.example
++!.env.atlas.example
++node_modules/
++.next/
++.vercel/
++*.tsbuildinfo
+diff --git a/README.md b/README.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..effb95c6e7f06f187e728aa515720ced2d86b9fc
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,14 @@
++# Atlas internship tracker
++
++A student internship workspace using Next.js, Supabase Auth, PostgreSQL and private document storage.
++
++The application lives in **`atlas-standalone/`**. Run npm commands from that directory and set Vercel's **Root Directory** to `atlas-standalone`.
++
++- [Application features and local development](atlas-standalone/README.md)
++- [Your configured accounts and remaining setup](atlas-standalone/docs/PROJECT_SETUP.md)
++- [Deployment and live acceptance checks](atlas-standalone/docs/DEPLOYMENT.md)
++- [Test results and limitations](atlas-standalone/docs/TESTING.md)
++
++GitHub Actions runs from `.github/workflows/ci.yml` at the repository root. It installs the application's locked dependencies, then runs lint, type checks, tests and the production build. It does not require production credentials.
++
++The Supabase schema and private storage bucket are provisioned. Vercel accepted a preview deployment; its final build status has not been verified because the connected inspection tools lack access to the hosting team. Production credentials, authentication settings and live acceptance checks remain incomplete.
+diff --git a/atlas-standalone/README.md b/atlas-standalone/README.md
+index 34e9ca5ee48f26b68e1d9e8e2b7185d26adb006d..4522cdb92ba99fa0ecd1fde07c0338410d6f3d81 100644
+--- a/atlas-standalone/README.md
++++ b/atlas-standalone/README.md
+@@ -15,7 +15,9 @@ A standalone student internship tracker built with **Next.js 16, React 19, TypeS
+ 
+ ## Start here
+ 
+-For your already created Supabase project, use [docs/PROJECT_SETUP.md](docs/PROJECT_SETUP.md) and the supplied `.env.atlas.example`. Database setup and access checks are complete; GitHub upload, private runtime credentials, production email and hosting remain pending.
++For your already created Supabase project, use [docs/PROJECT_SETUP.md](docs/PROJECT_SETUP.md) and the supplied `.env.atlas.example`. The source is uploaded and database access checks are complete. Vercel accepted a preview deployment; private runtime credentials, production email and hosted verification remain pending.
++
++In this repository, the application is inside `atlas-standalone/`. Open a terminal in that directory for the commands below. Vercel's Root Directory must also be `atlas-standalone`.
+ 
+ Use **Node.js 22.13+ or 24** and npm. You do not need Docker for the supplied tests.
+ 
+@@ -65,7 +67,7 @@ Tests use an embedded PostgreSQL engine (PGlite), real SDKs with local provider
+ | `supabase/migrations/` | Application schema, security policies and private bucket |
+ | `scripts/` | Environment validation and checksum-tracked migrations |
+ | `tests/` | Authentication, database and storage tests |
+-| `.github/workflows/ci.yml` | Automated validation on pushes and pull requests |
++| `../.github/workflows/ci.yml` | Repository-level validation on pushes and pull requests |
+ 
+ ## Operational limits
+ 
+diff --git a/atlas-standalone/docs/DEPLOYMENT.md b/atlas-standalone/docs/DEPLOYMENT.md
+index 233126874e43ab65eed49a2e6b67de8f45c2e310..6a0d52f03b31e6ffed05c165ff03aea784861f6a 100644
+--- a/atlas-standalone/docs/DEPLOYMENT.md
++++ b/atlas-standalone/docs/DEPLOYMENT.md
+@@ -2,6 +2,8 @@
+ 
+ This project is standard Next.js. Your GitHub repository owns the code, Supabase owns your user accounts and data, and Vercel hosts the app. A paid custom domain is optional. For the already provisioned Atlas project, start with [PROJECT_SETUP.md](PROJECT_SETUP.md); its applied migrations must not be run manually a second time.
+ 
++The `Kian-Cruz/atlas-internship-tracker` repository already contains the app in `atlas-standalone/`. Its Supabase migrations are already applied. Run npm commands from that application directory; skip account creation and the initial upload steps below when using the existing setup.
++
+ ## 1. Create a dedicated Supabase project
+ 
+ 1. Open https://supabase.com/dashboard and create a project in your own organization.
+@@ -78,7 +80,7 @@ The `.gitignore` excludes `.env.local`, build output and dependencies. Check `gi
+ ## 5. Deploy to Vercel
+ 
+ 1. Open https://vercel.com/new and import your repository.
+-2. Use the **Next.js** framework preset, repository root directory, and Node.js **22.x or 24.x**.
++2. Use the **Next.js** framework preset and Node.js **22.x or 24.x**. For `Kian-Cruz/atlas-internship-tracker`, set **Root Directory** to `atlas-standalone`. If adapting this project to another repository, select the directory containing `package.json`.
+ 3. Add these environment variables for the production environment:
+ 
+ | Variable | Value |
+diff --git a/atlas-standalone/docs/HANDOFF.md b/atlas-standalone/docs/HANDOFF.md
+index f94025c4e7e9b0465c45286169322fbc7737dbc6..b6b5199a8b94327ca985b76fe0066a8d39d4801b 100644
+--- a/atlas-standalone/docs/HANDOFF.md
++++ b/atlas-standalone/docs/HANDOFF.md
+@@ -14,9 +14,9 @@ The independent application source, migrations, tests and deployment configurati
+ 
+ ## Remaining work
+ 
+-1. Upload source to https://github.com/Kian-Cruz/atlas-internship-tracker. The connected integration again returned HTTP 403 after the user reported granting access. No source files were uploaded. docs/PROJECT_SETUP.md includes a local Git upload route that preserves the initial README commit and does not force-push.
++1. Publish the prepared repository layout correction. The user uploaded all 123 source files at commit `9bb3053bb340f7fe1f5e339f4110de14973727e1`; they match the tested source. The correction moves GitHub's workflow out of the nested app folder and configures the application working directory. Integration writes returned HTTP 403, so the assistant has not pushed this correction.
+ 2. Set private server credentials, database connection URIs, authentication URL settings and production SMTP in the user's accounts. The connected Supabase tools do not expose these private credentials or configuration actions.
+-3. Create the Vercel deployment. The Vercel plugin is installed, but no live operations are exposed to this session.
++3. Restore Vercel inspection access to team `kian-cruzs-projects`, check preview deployment `dpl_EyW9a9N6ScN4HH7qHhdLEsyVRAJe`, connect the project's Git repository and configure production. Vercel accepted the uploaded-source preview, but inspection and protected-preview access returned HTTP 403. The build outcome is unverified. See PROJECT_SETUP.md for the inspector URL.
+ 4. Complete the signed-in browser, live email, hosted document and mobile acceptance checks.
+ 
+-The independent website is not live. The earlier ChatGPT-hosted application and its data remain separate. No Flowpilot records or settings were changed.
++The independent production website is not yet verified. The earlier ChatGPT-hosted application and its data remain separate. No Flowpilot records or settings were changed.
+diff --git a/atlas-standalone/docs/PROJECT_SETUP.md b/atlas-standalone/docs/PROJECT_SETUP.md
+index d0643f9e56ccee416272334d04cded0a52d0ae50..8c64c3bd912923e1b2a793ce6a2606580ec69016 100644
+--- a/atlas-standalone/docs/PROJECT_SETUP.md
++++ b/atlas-standalone/docs/PROJECT_SETUP.md
+@@ -23,31 +23,33 @@ The connected tools expose the publishable key but not the private server key, d
+ 4. Configure Supabase's Site URL and allowed redirects to match the deployed Atlas URL, keep email confirmation enabled and set the minimum password length to 12.
+ 5. Configure production SMTP, then the confirmation and recovery templates in DEPLOYMENT.md. New Free projects using default SMTP cannot customize authentication email templates. With default templates, Atlas supports the same-browser PKCE callback path; production email delivery still needs configuration and verification.
+ 
+-## GitHub upload
++## GitHub source and checks
+ 
+ Destination: https://github.com/Kian-Cruz/atlas-internship-tracker
+ 
+-The connected GitHub integration still returned HTTP 403 on writes after the reported permission update. No source files were uploaded through it. To publish using your own local Git credentials, download the latest ZIP, extract it to a **new folder**, open the inner `atlas-standalone` folder in VS Code and run:
++Your local push successfully uploaded the application at commit `9bb3053bb340f7fe1f5e339f4110de14973727e1`. All 123 application files were compared with the tested source and match. The app lives in the repository's `atlas-standalone/` directory.
+ 
+-```powershell
+-git init -b main
+-git remote add origin https://github.com/Kian-Cruz/atlas-internship-tracker.git
+-git fetch origin main
+-git reset --mixed origin/main
+-git add .
+-git commit -m "Add standalone Atlas internship tracker"
+-git push -u origin main
+-```
++The hosting correction moves GitHub Actions to `.github/workflows/ci.yml` at the repository root, sets its working directory and npm cache path to the application folder, and adds a root README and environment-file exclusions. GitHub only discovers workflows in the repository-level workflows directory. The original upload had no discovered Actions runs.
+ 
+-These commands are for the freshly extracted folder. The mixed reset connects it to the existing initial README commit while preserving the extracted working files. The push does not force-overwrite remote history. Git may ask you to sign in through your own credential manager. Review the staged file list before committing if you have added personal files or credentials.
++The connected GitHub integration returned HTTP 403 on writes. The correction was prepared locally for your review and local Git push; it has not been published by the assistant. There is no need to re-upload or recreate the application.
+ 
+ ## Hosting
+ 
+-Vercel is installed in the conversation, but no live Vercel operations were exposed to the session. No Atlas Vercel project or deployment has been created by this work.
++Vercel accepted a preview deployment on 11 September 2026:
+ 
+-After the source is uploaded, import the repository at https://vercel.com/new, select Next.js, and configure the five production environment variables listed in DEPLOYMENT.md. Use `.env.atlas.example` for the two public Supabase values, and enter private values directly in Vercel's environment settings. Set `APP_URL` to the final HTTPS origin. Do not put the local migration URI in Vercel.
++- Project/team: `kian-cruzs-projects/atlas-internship-tracker`.
++- Deployment: `dpl_EyW9a9N6ScN4HH7qHhdLEsyVRAJe`.
++- Inspector: https://vercel.com/kian-cruzs-projects/atlas-internship-tracker/EyW9a9N6ScN4HH7qHhdLEsyVRAJe
++- Preview: https://atlas-internship-tracker-jc0ofq73b-kian-cruzs-projects.vercel.app
++- Requested settings: Next.js, Node 22.x, Root Directory `atlas-standalone`, `npm ci`, `npm run build`.
+ 
+-Complete the live acceptance checks in DEPLOYMENT.md before inviting students. The website is not live yet.
++The deployment was initially `INITIALIZING`. The inspection and protected-preview tools then returned HTTP 403: the connection lacks access to the `kian-cruzs-projects` team. The final build result and effective project settings are not verified. Reauthorize the Vercel connection for that team to enable inspection. This is a team authorization issue, not a missing plugin installation.
++
++The preview was uploaded from source files. Automatic GitHub deployment linkage has not been configured or verified. In the existing project's Git settings, connect `Kian-Cruz/atlas-internship-tracker` and use `main` as the production branch. Do not create another project solely to connect the repository.
++
++Configure the five production environment variables listed in DEPLOYMENT.md. Use `.env.atlas.example` for the two public Supabase values, and enter `SUPABASE_SECRET_KEY` and `DATABASE_URL` directly in Vercel's environment settings. Set `APP_URL` to the final HTTPS production origin assigned by Vercel; do not use the one-off preview URL as the production origin. Do not put the local migration URI in Vercel.
++
++After setting the production variables and matching Supabase's authentication URLs, deploy again and complete the live acceptance checks in DEPLOYMENT.md. A functioning production website has not yet been verified.
+ 
+ ## Current platform reference
+ 
