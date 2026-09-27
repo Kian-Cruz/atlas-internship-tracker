@@ -16,6 +16,12 @@ export const interviewSchema = z.object({ application_id: id, title: text(160).m
 export const noteSchema = z.object({ application_id: id, body: text(4000).min(1, 'Write a note first') }).strict();
 export const documentSchema = z.object({ application_id: z.union([id, z.literal('')]).default(''), name: text(160).min(1, 'Document name is required'), kind: z.enum(DOC_KINDS), status: z.enum(DOC_STATUSES), notes: text(500).default('') }).strict();
 export const versionSchema = z.number().int().positive();
+export const skillAnalysisRequestSchema = z.object({ document_id: id, application_id: z.union([id, z.literal('')]).default(''), job_title: text(160).default(''), company_name: text(160).default(''), source_url: safeUrl, job_description: text(20000).default('') }).strict().refine(v => v.job_description.trim().length > 0 || v.source_url, { message: 'Paste a job description or a link to one.', path: ['job_description'] });
+export type SkillAnalysisRequest = z.infer<typeof skillAnalysisRequestSchema>;
+export const skillProgressUpdateSchema = z.object({ skill: text(160), status: z.enum(['todo', 'learning', 'done']), version: versionSchema }).strict();
+export type SkillProgressUpdate = z.infer<typeof skillProgressUpdateSchema>;
+export type SkillStatus = 'todo' | 'learning' | 'done';
+export type SkillAnalysis = { id: string; version: number; created_at: string; updated_at: string; document_id: string | null; application_id: string | null; job_title: string; company_name: string; source_url: string; job_description: string; resume_skills: string[]; matched_skills: string[]; missing_skills: string[]; suggestions: { skill: string; why: string }[]; match_score: number; summary: string; skill_progress: Record<string, SkillStatus> };
 export type CompanyInput = z.infer<typeof companySchema>;
 export type ApplicationInput = z.infer<typeof applicationSchema>;
 export type InterviewInput = z.infer<typeof interviewSchema>;

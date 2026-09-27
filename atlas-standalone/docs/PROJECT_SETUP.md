@@ -8,7 +8,7 @@
 - Quoted project cost at creation: **$0/month**, on the organization's Free plan. Usage and other providers remain subject to their plans.
 - Dashboard: https://supabase.com/dashboard/project/ekpsmgxcyczielnwvapw
 - Project API URL: https://ekpsmgxcyczielnwvapw.supabase.co
-- Private application schema: `atlas`, with seven tables and enforced row-level security.
+- Private application schema: `atlas`, with eight tables (including `skill_analyses`, which also tracks per-skill learning progress) and enforced row-level security.
 - Private document bucket: `atlas-documents`, limited to 4 MiB PDF, DOCX and TXT files.
 
 The included `.env.atlas.example` contains this project's public URL and active publishable key. It contains no database password or server secret. Copy it to `.env.local` and fill in the remaining values from your own Supabase dashboard. The existing Flowpilot project was not changed.
@@ -22,6 +22,7 @@ The connected tools expose the publishable key but not the private server key, d
 3. Obtain a session pooler or direct URI for local `DATABASE_MIGRATION_URL`. The migrations already applied in this project are recorded in `atlas_meta.migrations`, so the supplied runner can recognize and skip them by checksum.
 4. Configure Supabase's Site URL and allowed redirects to match the deployed Atlas URL, keep email confirmation enabled and set the minimum password length to 12.
 5. Configure production SMTP, then the confirmation and recovery templates in DEPLOYMENT.md. New Free projects using default SMTP cannot customize authentication email templates. With default templates, Atlas supports the same-browser PKCE callback path; production email delivery still needs configuration and verification.
+6. Optional: set `ANTHROPIC_API_KEY` to enable the Skills panel (résumé vs. job description gap analysis). Without it, that one feature returns a clear "not configured" message; everything else works as before.
 
 ## GitHub source and checks
 

@@ -26,6 +26,8 @@ npm run setup:check
 npm run db:migrate
 ```
 
+This project's newest migrations add a `skill_analyses` table (and a `skill_progress` column on it) for the Skills panel. Apply them the same way as the others; neither touches existing data.
+
 The migration runner records a checksum for each applied SQL file, skips completed migrations, and rejects edits to previously applied files. Run it again for future migrations. Do not run migrations as part of a public HTTP route or every Vercel build.
 
 The first migration creates the private `atlas` schema, the restricted `atlas_app` role, row-level security, indexes and relationships. The second creates the private `atlas-documents` storage bucket with a 4 MiB file limit. The later RLS migration evaluates the transaction-local owner once per statement. Runtime SQL always switches to the restricted role and sets the verified student ID inside the transaction. The private schema must **not** be added to Supabase's exposed Data API schemas. Do not create broad storage policies allowing public access to this bucket.
@@ -90,6 +92,7 @@ The `.gitignore` excludes `.env.local`, build output and dependencies. Check `gi
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key |
 | `SUPABASE_SECRET_KEY` | Supabase server secret or legacy service_role key |
 | `DATABASE_URL` | Supabase transaction pooler URI |
+| `ANTHROPIC_API_KEY` *(optional)* | Enables the Skills panel (résumé vs. job description analysis). Omit to leave that feature disabled. |
 
 Do not add `DATABASE_MIGRATION_URL` to Vercel; it is for the local migration command. Configure the server key and database URI as sensitive secrets. Do not put them in `vercel.json`.
 

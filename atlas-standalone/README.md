@@ -5,9 +5,10 @@ A standalone student internship tracker built with **Next.js 16, React 19, TypeS
 ## Included
 
 - Email/password registration, email confirmation, sign-in, sign-out and password recovery.
-- Dashboard, company records, application list and stage board.
+- Dashboard, company records, application list and a drag-and-drop stage board.
 - Interview scheduling, time-zone conversion, notes and stage history.
 - Private PDF, DOCX and TXT documents with metadata, status and downloads.
+- Skills panel: compares a résumé against a pasted or linked job description, reports matched skills, gaps and what to learn next, and lets you mark each missing skill as learning or learned (needs `ANTHROPIC_API_KEY`; optional).
 - Analytics, search, filtering, pagination, responsive navigation and a read-only sample workspace.
 - Server validation, optimistic concurrency, per-student quotas and write rate limits.
 - PostgreSQL row-level security and composite ownership constraints.
@@ -71,9 +72,11 @@ Tests use an embedded PostgreSQL engine (PGlite), real SDKs with local provider 
 
 ## Operational limits
 
-Documents are limited to **4 MiB** so multipart requests fit within Vercel's 4.5 MB function payload limit. Workspaces allow 300 companies, 500 applications, 1,000 interviews, 1,000 notes, and 100 documents. Analytics uses at most the newest 5,000 stage events. Dates display in the visitor's local time zone.
+Documents are limited to **4 MiB** so multipart requests fit within Vercel's 4.5 MB function payload limit. Workspaces allow 300 companies, 500 applications, 1,000 interviews, 1,000 notes, 100 documents, and 50 skill analyses. Analytics uses at most the newest 5,000 stage events. Dates display in the visitor's local time zone.
 
 The application tracks opportunities; it does not apply to employers, send interview reminders, or scan uploads for malware. File extension and basic signature validation are provided. Configure email delivery, backups, budget alerts, monitoring and retention in your hosting accounts before onboarding students. See the deployment guide for details.
+
+When a student runs a Skills analysis, the extracted résumé text and the job description are sent to the Anthropic API (`ANTHROPIC_API_KEY`) to generate the comparison; nothing else in the app calls an external AI service, and results are stored only in that student's own row, governed by the same row-level security as everything else.
 
 Existing records in the previous ChatGPT-hosted edition are not copied automatically. This standalone edition starts with a fresh database; any later import must map old owner identities to verified Supabase accounts. The previous live Site is unaffected.
 
