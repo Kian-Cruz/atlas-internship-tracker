@@ -86,9 +86,51 @@ export async function fetchJobPostingText(rawUrl: string): Promise<string> {
   return text;
 }
 
-// --- Claude-powered skill-gap analysis --------------------------------------
+// --- Free keyword-matching fallback (used when ANTHROPIC_API_KEY isn't set) -
 
 export type SkillGapResult = { resume_skills: string[]; matched_skills: string[]; missing_skills: string[]; suggestions: { skill: string; why: string }[]; match_score: number; summary: string };
+
+const SKILL_KEYWORDS = [
+  'JavaScript', 'TypeScript', 'Python', 'Java', 'C++', 'C#', 'C', 'Go', 'Rust', 'PHP', 'Ruby', 'Swift', 'Kotlin', 'Scala', 'R', 'MATLAB', 'Dart',
+  'HTML', 'CSS', 'Sass', 'Tailwind', 'Bootstrap', 'React', 'Next.js', 'Vue', 'Angular', 'Svelte', 'jQuery', 'Redux',
+  'Node.js', 'Express', 'Django', 'Flask', 'FastAPI', 'Spring', 'Spring Boot', 'Laravel', 'Ruby on Rails', 'ASP.NET', '.NET',
+  'SQL', 'MySQL', 'PostgreSQL', 'SQLite', 'Oracle', 'SQL Server', 'MongoDB', 'Redis', 'Firebase', 'Supabase', 'DynamoDB', 'GraphQL', 'REST API', 'API',
+  'AWS', 'Azure', 'Google Cloud', 'GCP', 'Docker', 'Kubernetes', 'CI/CD', 'Jenkins', 'GitHub Actions', 'Terraform', 'Linux', 'Bash', 'Nginx',
+  'Git', 'GitHub', 'GitLab', 'Jira', 'Agile', 'Scrum', 'Kanban',
+  'Machine Learning', 'Deep Learning', 'TensorFlow', 'PyTorch', 'Pandas', 'NumPy', 'Scikit-learn', 'Data Analysis', 'Data Science', 'Excel', 'Power BI', 'Tableau',
+  'Figma', 'Adobe XD', 'Photoshop', 'UI/UX', 'Wireframing',
+  'Unit Testing', 'Jest', 'Cypress', 'Selenium', 'QA', 'Testing',
+  'Android', 'iOS', 'React Native', 'Flutter',
+  'Communication', 'Teamwork', 'Leadership', 'Problem Solving', 'Time Management', 'Project Management', 'Customer Service',
+];
+
+function escapeRegex(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function extractKeywordSkills(text: string): string[] {
+  const found: string[] = [];
+  for (const skill of SKILL_KEYWORDS) {
+    const pattern = new RegExp(`(?<![a-z0-9])${escapeRegex(skill.toLowerCase()).replace(/\\\./g, '\\.?')}(?![a-z0-9])`, 'i');
+    if (pattern.test(text)) found.push(skill);
+  }
+  return found;
+}
+
+/** No-API-key fallback: compares known skill keywords found in each text. Free, but has no real understanding of context. */
+function keywordSkillGap(resumeText: string, jobText: string): SkillGapResult {
+  const resumeSkills = extractKeywordSkills(resumeText);
+  const jobSkills = extractKeywordSkills(jobText);
+  const resumeSet = new Set(resumeSkills.map(s => s.toLowerCase()));
+  const matched = jobSkills.filter(s => resumeSet.has(s.toLowerCase()));
+  const missing = jobSkills.filter(s => !resumeSet.has(s.toLowerCase()));
+  const score = jobSkills.length ? Math.round((matched.length / jobSkills.length) * 100) : 0;
+  const suggestions = missing.slice(0, 6).map(skill => ({ skill, why: `This job description mentions ${skill}, but it wasn't found in your résumé. A short course or small personal project is a solid way to pick it up.` }));
+  const summary = jobSkills.length
+    ? `Keyword-based match (no AI key configured): your résumé matched ${matched.length} of the ${jobSkills.length} recognizable skill keywords found in this job description.`
+    : `No recognizable skill keywords were found in this job description to compare against your résumé.`;
+  return { resume_skills: resumeSkills, matched_skills: matched, missing_skills: missing, suggestions, match_score: score, summary };
+}
+
+// --- Claude-powered skill-gap analysis (used when ANTHROPIC_API_KEY is set) -
 
 const SYSTEM_PROMPT = `You compare a student's résumé against an internship job description and report a skills gap analysis. Respond with ONLY a single JSON object, no prose and no markdown fences, matching exactly this shape:
 {"resume_skills": string[], "matched_skills": string[], "missing_skills": string[], "suggestions": [{"skill": string, "why": string}], "match_score": number, "summary": string}
@@ -104,7 +146,7 @@ Base every judgment only on the text given. Do not invent employers, dates, or c
 /** Calls the Anthropic API to compare a résumé against a job description. Requires ANTHROPIC_API_KEY. */
 export async function analyzeSkillGap(resumeText: string, jobText: string): Promise<SkillGapResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new AppError(503, 'Skill analysis is not configured for this deployment. Ask an administrator to set ANTHROPIC_API_KEY.');
+  if (!apiKey) return keywordSkillGap(resumeText, jobText);
   const resume = resumeText.slice(0, 12000);
   const job = jobText.slice(0, 12000);
   const controller = new AbortController();
