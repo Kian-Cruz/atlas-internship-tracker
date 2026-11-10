@@ -185,11 +185,14 @@ async function analyzeWithOllama(model: string, resume: string, job: string): Pr
   return normalizeModelResult(data.message?.content || '');
 }
 
-/** Google Gemini (free tier available). Needs GEMINI_API_KEY; model can be changed with GEMINI_MODEL. */
-async function analyzeWithGemini(apiKey: string, resume: string, job: string): Promise<SkillGapResult> {
-  const model = process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite';
+/** Google Gemini (free tier available). Needs GEMINI_API_KEY; GEMINI_MODEL overrides the default model. */
+class GeminiError extends AppError {
+  constructor(status: number, message: string, public retryable: boolean) { super(status, message); }
+}
+
+async function callGemini(apiKey: string, model: string, resume: string, job: string): Promise<SkillGapResult> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
+  const timeout = setTimeout(() => controller.abort(), 25000);
   let response: Response;
   try {
     response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
@@ -201,19 +204,40 @@ async function analyzeWithGemini(apiKey: string, resume: string, job: string): P
         generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 2048 },
       }),
     });
-  } catch (e) { console.error('Gemini fetch failed', e); throw new AppError(503, 'Could not reach Gemini (network error or timeout). Please try again.'); }
-  finally { clearTimeout(timeout); }
-  if (response.status === 429) throw new AppError(429, 'The free AI quota is used up for now. Please wait a minute and try again.');
+  } catch (e) {
+    console.error('Gemini fetch failed', model, e);
+    throw new GeminiError(503, 'Could not reach Gemini (network error or timeout). Please try again.', true);
+  } finally { clearTimeout(timeout); }
+  if (response.status === 429) throw new GeminiError(429, 'The free AI quota is used up for now. Please wait a minute and try again.', false);
   if (!response.ok) {
     let detail = '';
     try { detail = ((await response.json()) as { error?: { message?: string } }).error?.message || ''; } catch { /* no body */ }
     detail = detail.replace(/AIza[\w-]+|AQ\.[\w.-]+/g, '[key]').slice(0, 200);
     console.error('Gemini error', response.status, model, detail);
-    throw new AppError(503, `Gemini error ${response.status} (${model}): ${detail || 'no details'}`);
+    throw new GeminiError(503, `Gemini error ${response.status} (${model}): ${detail || 'no details'}`, response.status >= 500);
   }
   const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   const raw = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
   return normalizeModelResult(raw);
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** Tries the main model, retries once if Google is overloaded, then falls back to a second free model. */
+async function analyzeWithGemini(apiKey: string, resume: string, job: string): Promise<SkillGapResult> {
+  const primary = process.env.GEMINI_MODEL?.trim() || 'gemini-3.1-flash-lite';
+  const fallback = primary === 'gemini-3.5-flash-lite' ? 'gemini-3.1-flash-lite' : 'gemini-3.5-flash-lite';
+  const attempts = [primary, primary, fallback];
+  let lastError: unknown;
+  for (let i = 0; i < attempts.length; i++) {
+    if (i === 1) await sleep(1500);
+    try { return await callGemini(apiKey, attempts[i], resume, job); }
+    catch (e) {
+      lastError = e;
+      if (i === 1 && attempts[0] === attempts[1] && !(e instanceof GeminiError && e.retryable)) { /* try the fallback model next */ }
+    }
+  }
+  throw lastError;
 }
 
 /** Anthropic Claude (paid API). Needs ANTHROPIC_API_KEY. */
