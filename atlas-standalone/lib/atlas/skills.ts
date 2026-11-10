@@ -201,10 +201,16 @@ async function analyzeWithGemini(apiKey: string, resume: string, job: string): P
         generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 2048 },
       }),
     });
-  } catch { throw new AppError(503, 'Skill analysis is temporarily unavailable. Please try again.'); }
+  } catch (e) { console.error('Gemini fetch failed', e); throw new AppError(503, 'Could not reach Gemini (network error or timeout). Please try again.'); }
   finally { clearTimeout(timeout); }
   if (response.status === 429) throw new AppError(429, 'The free AI quota is used up for now. Please wait a minute and try again.');
-  if (!response.ok) throw new AppError(503, 'Skill analysis is temporarily unavailable. Please try again.');
+  if (!response.ok) {
+    let detail = '';
+    try { detail = ((await response.json()) as { error?: { message?: string } }).error?.message || ''; } catch { /* no body */ }
+    detail = detail.replace(/AIza[\w-]+|AQ\.[\w.-]+/g, '[key]').slice(0, 200);
+    console.error('Gemini error', response.status, model, detail);
+    throw new AppError(503, `Gemini error ${response.status} (${model}): ${detail || 'no details'}`);
+  }
   const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   const raw = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
   return normalizeModelResult(raw);
