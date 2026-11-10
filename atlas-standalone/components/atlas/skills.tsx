@@ -86,7 +86,7 @@ export default function SkillsPanel({ documents, applications, companyName, prot
             ? <Textarea aria-label="Job description" value={jobDescription} onChange={e => setJobDescription(e.target.value)} rows={8} maxLength={20000} placeholder="Paste the full job description here…" />
             : <Input aria-label="Job posting link" type="url" value={sourceUrl} onChange={e => setSourceUrl(e.target.value)} placeholder="https://…" />}
         </div>
-        <div className="field full"><button className="btn primary" type="submit" disabled={busy}>{busy && <Loader2 className="spin" />}{busy ? 'Analyzing…' : 'Analyze skills'}<Target size={16} /></button><p className="skills-privacy-note">Your résumé text and this job description are sent to Anthropic’s API to generate the comparison.</p></div>
+        <div className="field full"><button className="btn primary" type="submit" disabled={busy}>{busy && <Loader2 className="spin" />}{busy ? 'Analyzing…' : 'Analyze skills'}<Target size={16} /></button><p className="skills-privacy-note">Your résumé text and this job description are sent to an AI service (Google Gemini) to generate the comparison.</p></div>
       </form>
     </section>
 

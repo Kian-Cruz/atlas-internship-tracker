@@ -86,9 +86,11 @@ export async function fetchJobPostingText(rawUrl: string): Promise<string> {
   return text;
 }
 
-// --- Free keyword-matching fallback (used when ANTHROPIC_API_KEY isn't set) -
+// --- Shared types ------------------------------------------------------------
 
 export type SkillGapResult = { resume_skills: string[]; matched_skills: string[]; missing_skills: string[]; suggestions: { skill: string; why: string }[]; match_score: number; summary: string };
+
+// --- Free keyword-matching fallback (used when no AI key is set) ------------
 
 const SKILL_KEYWORDS = [
   'JavaScript', 'TypeScript', 'Python', 'Java', 'C++', 'C#', 'C', 'Go', 'Rust', 'PHP', 'Ruby', 'Swift', 'Kotlin', 'Scala', 'R', 'MATLAB', 'Dart',
@@ -130,7 +132,7 @@ function keywordSkillGap(resumeText: string, jobText: string): SkillGapResult {
   return { resume_skills: resumeSkills, matched_skills: matched, missing_skills: missing, suggestions, match_score: score, summary };
 }
 
-// --- Claude-powered skill-gap analysis (used when ANTHROPIC_API_KEY is set) -
+// --- Generative AI skill-gap analysis ---------------------------------------
 
 const SYSTEM_PROMPT = `You compare a student's résumé against an internship job description and report a skills gap analysis. Respond with ONLY a single JSON object, no prose and no markdown fences, matching exactly this shape:
 {"resume_skills": string[], "matched_skills": string[], "missing_skills": string[], "suggestions": [{"skill": string, "why": string}], "match_score": number, "summary": string}
@@ -143,31 +145,10 @@ Rules:
 - summary: 2-3 sentences, encouraging and specific, aimed directly at the student.
 Base every judgment only on the text given. Do not invent employers, dates, or claims not present in the résumé.`;
 
-/** Calls the Anthropic API to compare a résumé against a job description. Requires ANTHROPIC_API_KEY. */
-export async function analyzeSkillGap(resumeText: string, jobText: string): Promise<SkillGapResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return keywordSkillGap(resumeText, jobText);
-  const resume = resumeText.slice(0, 12000);
-  const job = jobText.slice(0, 12000);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
-  let response: Response;
-  try {
-    response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST', signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-5', max_tokens: 1800, system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: `RESUME:\n${resume}\n\nJOB DESCRIPTION:\n${job}` }],
-      }),
-    });
-  } catch { throw new AppError(503, 'Skill analysis is temporarily unavailable. Please try again.'); }
-  finally { clearTimeout(timeout); }
-  if (!response.ok) throw new AppError(503, 'Skill analysis is temporarily unavailable. Please try again.');
-  const data = await response.json() as { content?: { type: string; text?: string }[] };
-  const raw = data.content?.find(b => b.type === 'text')?.text || '';
+/** Parses the model's JSON reply and clamps every field to safe sizes/types before it is stored. */
+export function normalizeModelResult(raw: string): SkillGapResult {
   const cleaned = raw.replace(/^```json\s*|^```\s*|```\s*$/g, '').trim();
-  let parsed: SkillGapResult;
+  let parsed: Partial<SkillGapResult>;
   try { parsed = JSON.parse(cleaned); } catch { throw new AppError(503, 'Skill analysis returned an unexpected result. Please try again.'); }
   const strings = (v: unknown) => Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string').slice(0, 40).map(s => s.slice(0, 120)) : [];
   return {
@@ -178,4 +159,90 @@ export async function analyzeSkillGap(resumeText: string, jobText: string): Prom
     match_score: Math.max(0, Math.min(100, Math.round(Number(parsed.match_score) || 0))),
     summary: typeof parsed.summary === 'string' ? parsed.summary.slice(0, 800) : '',
   };
+}
+
+const userPrompt = (resume: string, job: string) => `RESUME:\n${resume}\n\nJOB DESCRIPTION:\n${job}`;
+
+/** Ollama (local models, free). Enabled when OLLAMA_MODEL is set; OLLAMA_URL defaults to http://localhost:11434. Only works where the app can reach Ollama (e.g. running locally). */
+async function analyzeWithOllama(model: string, resume: string, job: string): Promise<SkillGapResult> {
+  const base = (process.env.OLLAMA_URL?.trim() || 'http://localhost:11434').replace(/\/+$/, '');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  let response: Response;
+  try {
+    response = await fetch(`${base}/api/chat`, {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model, stream: false, format: 'json', options: { temperature: 0.2 },
+        messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: userPrompt(resume, job) }],
+      }),
+    });
+  } catch { throw new AppError(503, 'Could not reach Ollama. Make sure it is running and the model is downloaded.'); }
+  finally { clearTimeout(timeout); }
+  if (!response.ok) throw new AppError(503, 'Ollama returned an error. Check that the model name is correct and downloaded.');
+  const data = await response.json() as { message?: { content?: string } };
+  return normalizeModelResult(data.message?.content || '');
+}
+
+/** Google Gemini (free tier available). Needs GEMINI_API_KEY; model can be changed with GEMINI_MODEL. */
+async function analyzeWithGemini(apiKey: string, resume: string, job: string): Promise<SkillGapResult> {
+  const model = process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  let response: Response;
+  try {
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: 'user', parts: [{ text: userPrompt(resume, job) }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 2048 },
+      }),
+    });
+  } catch { throw new AppError(503, 'Skill analysis is temporarily unavailable. Please try again.'); }
+  finally { clearTimeout(timeout); }
+  if (response.status === 429) throw new AppError(429, 'The free AI quota is used up for now. Please wait a minute and try again.');
+  if (!response.ok) throw new AppError(503, 'Skill analysis is temporarily unavailable. Please try again.');
+  const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const raw = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
+  return normalizeModelResult(raw);
+}
+
+/** Anthropic Claude (paid API). Needs ANTHROPIC_API_KEY. */
+async function analyzeWithClaude(apiKey: string, resume: string, job: string): Promise<SkillGapResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  let response: Response;
+  try {
+    response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5', max_tokens: 1800, system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userPrompt(resume, job) }],
+      }),
+    });
+  } catch { throw new AppError(503, 'Skill analysis is temporarily unavailable. Please try again.'); }
+  finally { clearTimeout(timeout); }
+  if (!response.ok) throw new AppError(503, 'Skill analysis is temporarily unavailable. Please try again.');
+  const data = await response.json() as { content?: { type: string; text?: string }[] };
+  return normalizeModelResult(data.content?.find(b => b.type === 'text')?.text || '');
+}
+
+/**
+ * Compares a résumé against a job description.
+ * Provider order: Ollama (OLLAMA_MODEL, local) -> Gemini (GEMINI_API_KEY, free tier) -> Claude (ANTHROPIC_API_KEY) -> built-in keyword matching.
+ */
+export async function analyzeSkillGap(resumeText: string, jobText: string): Promise<SkillGapResult> {
+  const resume = resumeText.slice(0, 12000);
+  const job = jobText.slice(0, 12000);
+  const ollamaModel = process.env.OLLAMA_MODEL?.trim();
+  if (ollamaModel) return analyzeWithOllama(ollamaModel, resume, job);
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  if (geminiKey) return analyzeWithGemini(geminiKey, resume, job);
+  const claudeKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (claudeKey) return analyzeWithClaude(claudeKey, resume, job);
+  return keywordSkillGap(resume, job);
 }
