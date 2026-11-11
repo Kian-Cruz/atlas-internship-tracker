@@ -4,11 +4,13 @@ import { extractResumeText, fetchJobPostingText, analyzeSkillGap, parseSkillAnal
 import { getDatabase } from '@/lib/platform/postgres';
 import { getUser, documentStorage } from '@/lib/auth/server';
 import { appOrigin } from '@/lib/auth/config';
+import { consumeQuota } from '@/lib/auth/rate-limit';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const { database, bucket, identity, owned } = createServices({ database: getDatabase, authenticate: getUser, storage: documentStorage, origin: appOrigin });
 const LIMIT = 50;
+const ANALYSES_PER_HOUR = 10;
 
 export async function GET(req: Request) {
   return boundary(async () => {
@@ -28,6 +30,8 @@ export async function POST(req: Request) {
     const document = await owned('documents', input.document_id, user.userId);
     if (document.deleting) throw new AppError(409, 'This document is being deleted. Choose another résumé.');
     if (input.application_id) await owned('applications', input.application_id, user.userId);
+
+    await consumeQuota('skills', user.userId, ANALYSES_PER_HOUR, 60 * 60_000, `You can run ${ANALYSES_PER_HOUR} analyses per hour. Please try again later.`);
 
     const file = await bucket().get(String(document.object_key));
     if (!file) throw new AppError(404, 'This document’s file is unavailable. Please re-upload it.');
