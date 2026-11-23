@@ -5,7 +5,7 @@ import { AppError } from './server';
 
 // --- Shared types ------------------------------------------------------------
 
-export type SkillGapResult = { resume_skills: string[]; matched_skills: string[]; missing_skills: string[]; suggestions: { skill: string; why: string }[]; match_score: number; summary: string };
+export type SkillGapResult = { resume_skills: string[]; matched_skills: string[]; missing_skills: string[]; suggestions: { skill: string; why: string; action?: string }[]; match_score: number; summary: string };
 
 // --- Free keyword-matching fallback (used when no AI key is set) ------------
 
@@ -45,7 +45,7 @@ export function keywordSkillGap(resumeText: string, jobText: string): SkillGapRe
   const matched = jobSkills.filter(s => resumeSet.has(s.toLowerCase()));
   const missing = jobSkills.filter(s => !resumeSet.has(s.toLowerCase()));
   const score = jobSkills.length ? Math.round((matched.length / jobSkills.length) * 100) : 0;
-  const suggestions = missing.slice(0, 6).map(skill => ({ skill, why: `This job description mentions ${skill}, but it wasn't found in your résumé. A short course or small personal project is a solid way to pick it up.` }));
+  const suggestions = missing.slice(0, 6).map(skill => ({ skill, why: 'Listed in the job description but not found on your résumé.', action: `Take a short course or build a small project that uses ${skill}.` }));
   const summary = jobSkills.length
     ? `Keyword-based match (no AI key configured): your résumé matched ${matched.length} of the ${jobSkills.length} recognizable skill keywords found in this job description.`
     : `No recognizable skill keywords were found in this job description to compare against your résumé.`;
@@ -55,14 +55,14 @@ export function keywordSkillGap(resumeText: string, jobText: string): SkillGapRe
 // --- Generative AI skill-gap analysis ---------------------------------------
 
 const SYSTEM_PROMPT = `You compare a student's résumé against an internship job description and report a skills gap analysis. Respond with ONLY a single JSON object, no prose and no markdown fences, matching exactly this shape:
-{"resume_skills": string[], "matched_skills": string[], "missing_skills": string[], "suggestions": [{"skill": string, "why": string}], "match_score": number, "summary": string}
+{"resume_skills": string[], "matched_skills": string[], "missing_skills": string[], "suggestions": [{"skill": string, "why": string, "action": string}], "match_score": number, "summary": string}
 Rules:
 - resume_skills: concrete skills, tools, languages, and technologies evidenced in the résumé (8-25 items, deduplicated, Title Case short phrases).
 - matched_skills: skills/requirements from the job description that the résumé already evidences.
 - missing_skills: skills/requirements the job description asks for that the résumé does not evidence (order by importance to the role, most important first).
-- suggestions: for up to 6 of the most important missing_skills, a one-sentence, encouraging, concrete note on how a student could pick it up (a course, project type, or certification) and why it matters for this role.
+- suggestions: for up to 8 of the most important missing_skills, an object {"skill": string, "why": string, "action": string}. "why" is ONE short sentence (max 15 words) on why this role needs the skill. "action" is ONE short, concrete next step (max 15 words) such as a free course, a small project to build, or a certification. No filler, no long paragraphs.
 - match_score: an integer 0-100 estimating overall fit based on how much of the job's required skills are covered.
-- summary: 2-3 sentences, encouraging and specific, aimed directly at the student.
+- summary: at most 2 short sentences, encouraging and specific, aimed directly at the student.
 Base every judgment only on the text given. Do not invent employers, dates, or claims not present in the résumé.`;
 
 /** Parses the model's JSON reply and clamps every field to safe sizes/types before it is stored. */
@@ -75,7 +75,10 @@ export function normalizeModelResult(raw: string): SkillGapResult {
     resume_skills: strings(parsed.resume_skills),
     matched_skills: strings(parsed.matched_skills),
     missing_skills: strings(parsed.missing_skills),
-    suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.filter((s): s is { skill: string; why: string } => !!s && typeof s.skill === 'string' && typeof s.why === 'string').slice(0, 8).map(s => ({ skill: s.skill.slice(0, 120), why: s.why.slice(0, 400) })) : [],
+    suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions
+      .filter((s): s is { skill: string; why: string; action?: string } => !!s && typeof s.skill === 'string' && typeof s.why === 'string')
+      .slice(0, 8)
+      .map(s => ({ skill: s.skill.slice(0, 120), why: s.why.slice(0, 400), ...(typeof s.action === 'string' && s.action.trim() ? { action: s.action.trim().slice(0, 300) } : {}) })) : [],
     match_score: Math.max(0, Math.min(100, Math.round(Number(parsed.match_score) || 0))),
     summary: typeof parsed.summary === 'string' ? parsed.summary.slice(0, 800) : '',
   };

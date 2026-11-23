@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { AppError } from '../lib/atlas/server.ts';
 import { analyzeSkillGap, keywordSkillGap, normalizeModelResult } from '../lib/atlas/skill-ai.ts';
 import { isBlockedHost, isPrivateAddress } from '../lib/atlas/url-guard.ts';
+import { resolveJobInput } from '../lib/atlas/skill-source.ts';
 
 const KEYS = ['OLLAMA_MODEL', 'GEMINI_API_KEY', 'GEMINI_MODEL', 'ANTHROPIC_API_KEY'];
 const realFetch = globalThis.fetch;
@@ -27,6 +28,10 @@ await test('Model output normalization', async t => {
     const result = normalizeModelResult(modelJson({ missing_skills: ['Docker', 7, null], suggestions: [{ skill: 'Docker' }, { skill: 'Git', why: 'Version control.' }] }));
     assert.deepEqual(result.missing_skills, ['Docker']);
     assert.deepEqual(result.suggestions, [{ skill: 'Git', why: 'Version control.' }]);
+  });
+  await t.test('Keeps a short action for each skill when the model provides one', () => {
+    const result = normalizeModelResult(modelJson({ suggestions: [{ skill: 'Docker', why: 'Used to deploy.', action: '  Build and run one app in a container.  ' }, { skill: 'Git', why: 'Teams use it.', action: 42 }] }));
+    assert.deepEqual(result.suggestions, [{ skill: 'Docker', why: 'Used to deploy.', action: 'Build and run one app in a container.' }, { skill: 'Git', why: 'Teams use it.' }]);
   });
   await t.test('Rejects non-JSON replies with a 503', () => {
     assert.throws(() => normalizeModelResult('Sorry, I cannot help'), e => e instanceof AppError && e.status === 503);
@@ -113,5 +118,56 @@ await test('Job link safety (SSRF guard)', async t => {
   await t.test('Blocks internal host names', () => {
     for (const host of ['localhost', 'LOCALHOST', 'app.localhost', 'metadata.google.internal', 'db.internal.']) assert.equal(isBlockedHost(host), true, host);
     assert.equal(isBlockedHost('example.com'), false);
+  });
+});
+
+await test('Application auto-fill for skills analysis', async t => {
+  const application = { role: 'Software Engineer Intern', company_id: 'c1', job_url: 'https://jobs.example.com/123' };
+  const base = { job_title: '', company_name: '', job_description: '', source_url: '' };
+  const deps = (over = {}) => ({
+    input: base, application, companyName: async () => 'Northstar',
+    fetchPosting: async url => 'Posting text from ' + url,
+    previousDescription: async () => null, ...over,
+  });
+  await t.test('Uses the application role, company and job link when nothing is entered', async () => {
+    const job = await resolveJobInput(deps());
+    assert.deepEqual(job, { jobTitle: 'Software Engineer Intern', companyName: 'Northstar', jobText: 'Posting text from https://jobs.example.com/123', sourceUrl: 'https://jobs.example.com/123', origin: 'application_link' });
+  });
+  await t.test('Manual role, company and pasted text override the application', async () => {
+    let fetched = false;
+    const job = await resolveJobInput(deps({ input: { job_title: 'Data Intern', company_name: 'Acme', job_description: 'Needs Python.', source_url: '' }, fetchPosting: async () => { fetched = true; return 'x'; } }));
+    assert.equal(job.jobTitle, 'Data Intern');
+    assert.equal(job.companyName, 'Acme');
+    assert.equal(job.jobText, 'Needs Python.');
+    assert.equal(job.origin, 'pasted_text');
+    assert.equal(fetched, false);
+  });
+  await t.test('A pasted link overrides the application link', async () => {
+    const job = await resolveJobInput(deps({ input: { ...base, source_url: 'https://other.example.com/job' } }));
+    assert.equal(job.origin, 'pasted_link');
+    assert.equal(job.sourceUrl, 'https://other.example.com/job');
+  });
+  await t.test('Falls back to the last saved description when the job link cannot be read', async () => {
+    const job = await resolveJobInput(deps({ fetchPosting: async () => { throw new AppError(422, 'blocked'); }, previousDescription: async () => 'Earlier saved description' }));
+    assert.equal(job.origin, 'previous_analysis');
+    assert.equal(job.jobText, 'Earlier saved description');
+    assert.equal(job.sourceUrl, '');
+  });
+  await t.test('Uses the saved description when the application has no link', async () => {
+    const job = await resolveJobInput(deps({ application: { ...application, job_url: '' }, previousDescription: async () => 'Saved text' }));
+    assert.equal(job.origin, 'previous_analysis');
+  });
+  await t.test('Asks the user to paste a description when nothing is available', async () => {
+    await assert.rejects(resolveJobInput(deps({ application: { ...application, job_url: '' } })), e => e instanceof AppError && e.status === 422 && /Paste the description/.test(e.message));
+  });
+  await t.test('Still fails clearly with no application and no input', async () => {
+    await assert.rejects(resolveJobInput(deps({ application: null })), e => e instanceof AppError && e.status === 422);
+  });
+  await t.test('Unexpected errors are not hidden by the fallback', async () => {
+    await assert.rejects(resolveJobInput(deps({ fetchPosting: async () => { throw new Error('boom'); } })), /boom/);
+  });
+  await t.test('A missing company does not block the analysis', async () => {
+    const job = await resolveJobInput(deps({ companyName: async () => { throw new AppError(404, 'not found'); } }));
+    assert.equal(job.companyName, '');
   });
 });

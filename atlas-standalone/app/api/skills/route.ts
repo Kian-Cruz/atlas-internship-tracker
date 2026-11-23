@@ -1,6 +1,7 @@
 import { AppError, createServices, boundary, response, jsonBody } from '@/lib/atlas/server';
 import { skillAnalysisRequestSchema } from '@/lib/atlas/contracts';
 import { extractResumeText, fetchJobPostingText, analyzeSkillGap, parseSkillAnalysisRow } from '@/lib/atlas/skills';
+import { resolveJobInput } from '@/lib/atlas/skill-source';
 import { getDatabase } from '@/lib/platform/postgres';
 import { getUser, documentStorage } from '@/lib/auth/server';
 import { appOrigin } from '@/lib/auth/config';
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
     const input = skillAnalysisRequestSchema.parse(await jsonBody(req));
     const document = await owned('documents', input.document_id, user.userId);
     if (document.deleting) throw new AppError(409, 'This document is being deleted. Choose another résumé.');
-    if (input.application_id) await owned('applications', input.application_id, user.userId);
+    const application = input.application_id ? await owned('applications', input.application_id, user.userId) : null;
 
     await consumeQuota('skills', user.userId, ANALYSES_PER_HOUR, 60 * 60_000, `You can run ${ANALYSES_PER_HOUR} analyses per hour. Please try again later.`);
 
@@ -38,14 +39,21 @@ export async function POST(req: Request) {
     const resumeText = await extractResumeText(file.body, String(document.content_type));
     if (resumeText.length < 40) throw new AppError(422, 'This document does not contain enough readable text to analyze.');
 
-    const jobText = input.job_description.trim() || await fetchJobPostingText(input.source_url);
+    // Manual input wins; a linked application fills in the role, company and job description the user left empty.
+    const job = await resolveJobInput({
+      input, application,
+      companyName: async () => String((await owned('companies', String(application?.company_id ?? ''), user.userId)).name ?? ''),
+      fetchPosting: fetchJobPostingText,
+      previousDescription: async () => (await database(user.userId).prepare("SELECT job_description FROM skill_analyses WHERE user_id=? AND application_id=? AND job_description<>'' ORDER BY created_at DESC LIMIT 1").bind(user.userId, input.application_id).first<{ job_description: string }>())?.job_description ?? null,
+    });
+    const jobText = job.jobText;
     const result = await analyzeSkillGap(resumeText, jobText);
 
     const now = new Date().toISOString();
     const record = {
       id: crypto.randomUUID(), user_id: user.userId, version: 1, created_at: now, updated_at: now,
       document_id: input.document_id, application_id: input.application_id || null,
-      job_title: input.job_title, company_name: input.company_name, source_url: input.source_url,
+      job_title: job.jobTitle, company_name: job.companyName, source_url: job.sourceUrl,
       job_description: jobText.slice(0, 20000),
       resume_skills: JSON.stringify(result.resume_skills), matched_skills: JSON.stringify(result.matched_skills),
       missing_skills: JSON.stringify(result.missing_skills), suggestions: JSON.stringify(result.suggestions),
